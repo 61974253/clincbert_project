@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clinical Report Analysis</title>
+
+```
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        background: #f4f7fb;
+        margin: 0;
+        padding: 40px;
+    }
+
+    .container {
+        max-width: 900px;
+        margin: auto;
+        background: white;
+        padding: 30px;
+        border-radius: 12px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+
+    h1 {
+        margin-top: 0;
+    }
+
+    .upload-box {
+        border: 2px dashed #aaa;
+        padding: 30px;
+        text-align: center;
+        border-radius: 10px;
+        margin: 20px 0;
+    }
+
+    .controls {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin: 16px 0;
+    }
+
+    select {
+        padding: 10px 12px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        font-size: 14px;
+    }
+
+    button {
+        padding: 12px 25px;
+        border: none;
+        border-radius: 8px;
+        background: #2563eb;
+        color: white;
+        cursor: pointer;
+        font-size: 16px;
+    }
+
+    button:disabled {
+        background: #999;
+        cursor: not-allowed;
+    }
+
+    #result {
+        margin-top: 25px;
+        padding: 20px;
+        background: #f8fafc;
+        border-radius: 10px;
+    }
+
+    .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 16px;
+    }
+
+    .badge {
+        background: #dbeafe;
+        color: #1d4ed8;
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 12px;
+        font-weight: bold;
+    }
+
+    .panel {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 16px;
+        margin-top: 16px;
+    }
+
+    h3 {
+        margin-top: 0;
+    }
+
+    pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin: 0;
+        font-family: Arial, sans-serif;
+    }
+
+    .entity-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .entity-item {
+        background: #dcfce7;
+        color: #166534;
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 12px;
+    }
+
+    .table-list {
+        margin: 0;
+        padding-left: 18px;
+    }
+
+    .error {
+        color: red;
+    }
+</style>
+```
+
+</head>
+
+<body>
+
+<div class="container">
+
+```
+<h1>Clinical Report Analysis</h1>
+
+<p>
+    Upload a patient medical report PDF or image.
+    PaddleOCR is the default OCR engine, with Tesseract available as a fallback when installed.
+</p>
+
+<div class="upload-box">
+    <input type="file" id="fileInput" accept=".pdf,.png,.jpg,.jpeg,.bmp,.tiff,.tif">
+    <p id="fileName">No file selected</p>
+</div>
+
+<div class="controls">
+    <label for="engineSelect">OCR engine:</label>
+    <select id="engineSelect">
+        <option value="paddleocr">PaddleOCR</option>
+        <option value="tesseract">Tesseract</option>
+    </select>
+    <button id="analyzeBtn" onclick="analyzeReport()">
+        Analyze Patient Report
+    </button>
+</div>
+
+<div id="result"></div>
+```
+
+</div>
+
+<script>
+
+const API_URL = "http://127.0.0.1:8000";
+
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function renderResult(data) {
+    const extractedText = data.extracted_text || "No text extracted.";
+    const entities = data.clinicalbert && data.clinicalbert.entities ? data.clinicalbert.entities : [];
+    const tableRows = Array.isArray(data.table_rows) ? data.table_rows : [];
+
+    const entitiesHtml = entities.length
+        ? `<div class="entity-list">${entities.map(entity => `<span class="entity-item">${escapeHtml(entity.text)} (${escapeHtml(entity.type)})</span>`).join("")}</div>`
+        : `<p>No medical entities found.</p>`;
+
+    const tableHtml = tableRows.length
+        ? `<ul class="table-list">${tableRows.map(row => `<li>${escapeHtml(row)}</li>`).join("")}</ul>`
+        : `<p>No table-like rows detected.</p>`;
+
+    document.getElementById("result").innerHTML = `
+        <div class="meta">
+            <span class="badge">OCR: ${escapeHtml(data.ocr_engine || "unknown")}</span>
+            <span class="badge">Accuracy: ${escapeHtml(data.overall_accuracy ?? 0)}%</span>
+            <span class="badge">Time: ${escapeHtml(data.execution_time ?? 0)}s</span>
+        </div>
+
+        <div class="panel">
+            <h3>Extracted Text</h3>
+            <pre>${escapeHtml(extractedText)}</pre>
+        </div>
+
+        <div class="panel">
+            <h3>ClinicalBERT Entities</h3>
+            ${entitiesHtml}
+        </div>
+
+        <div class="panel">
+            <h3>Table Rows</h3>
+            ${tableHtml}
+        </div>
+    `;
+}
+
+document.getElementById("fileInput").addEventListener("change", function () {
+
+    const file = this.files[0];
+
+    if (file) {
+        document.getElementById("fileName").textContent = file.name;
+    }
+
+});
+
+async function analyzeReport() {
+
+    const fileInput = document.getElementById("fileInput");
+    const result = document.getElementById("result");
+    const button = document.getElementById("analyzeBtn");
+    const engineSelect = document.getElementById("engineSelect");
+
+    if (!fileInput.files.length) {
+        result.innerHTML = "<p class='error'>Please select a PDF or image.</p>";
+        return;
+    }
+
+    const file = fileInput.files[0];
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("ocr_engine", engineSelect.value);
+
+    button.disabled = true;
+    button.textContent = "Analyzing...";
+
+    result.innerHTML = "<p>Processing patient report...</p>";
+
+    try {
+
+        const response = await fetch(
+            `${API_URL}/api/analyze`,
+            {
+                method: "POST",
+                body: formData
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.detail || "Backend error");
+        }
+
+        renderResult(data);
+
+    } catch (error) {
+
+        result.innerHTML =
+            "<p class='error'>❌ Error: " +
+            escapeHtml(error.message) +
+            "</p>";
+
+    } finally {
+
+        button.disabled = false;
+        button.textContent = "Analyze Patient Report";
+
+    }
+}
+
+</script>
+
+</body>
+</html>
